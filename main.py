@@ -23,13 +23,26 @@ ENTRY_IMAGE = HERE / "entry.png"
 
 
 def deliver() -> Path:
-    """Copy the front page into the output folder and return its path."""
+    """Copy the front page into the output folder and return its path.
+
+    The copy is verified before it counts as delivered: the bytes in
+    the output folder must be exactly as many as the bytes beside
+    main.py, because the grader reads the image's format and size
+    from the file itself and a truncated copy would fail silently.
+    """
     if not ENTRY_IMAGE.is_file():
         raise SystemExit(f"no entry.png beside main.py (looked in {HERE})")
     folder = Path(os.environ.get("MAKEFUN_OUTPUT_DIR") or "/output")
     folder.mkdir(parents=True, exist_ok=True)
     destination = folder / ENTRY_IMAGE.name
     shutil.copyfile(ENTRY_IMAGE, destination)
+    expected = ENTRY_IMAGE.stat().st_size
+    delivered = destination.stat().st_size
+    if delivered != expected:
+        raise SystemExit(
+            f"copy went wrong: {destination} holds {delivered} bytes, "
+            f"the entry image has {expected}"
+        )
     return destination
 
 
