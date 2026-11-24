@@ -1,171 +1,225 @@
 #!/usr/bin/env python3
-"""Compose entry.png: a one-page newspaper front page that sums up the
-world news of Monday 23 November 2026 in a single 1024x1024 image.
+"""Build the entry image for the news-image-20261123 bounty.
 
-The three illustrations in assets/ are original editorial artwork made
-for this entry. All words are typeset here with PIL so every headline is
-crisp and exactly as written -- no generated text, nothing garbled.
-
-Run locally with:  python3 build_image.py
-The grader never runs this file; main.py copies the finished entry.png.
+The picture is a broadsheet front page, "THE WORLD IN ONE DAY", that
+tells Monday 23 November 2026 in a single square frame. The artwork
+panels in assets/ were generated for this entry; every letter on the
+page is set here with Pillow so the headlines read exactly as intended
+at any size. Running this file rewrites entry.png next to it; the
+hand-in program (main.py) only ever copies that finished file.
 """
 
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-ROOT = Path(__file__).resolve().parent
-ASSETS = ROOT / "assets"
+HERE = Path(__file__).resolve().parent
+ART = HERE / "assets"
 
-W = H = 1024
-PAPER = (247, 243, 234)
-INK = (18, 18, 18)
-RED = (140, 29, 24)
-DARK = (24, 26, 31)
-GREY = (70, 70, 70)
-RULE = (18, 18, 18)
+SIDE = 1024
+MARGIN = 28
+PAPER_RGB = (246, 242, 233)
+BLACK = (20, 20, 20)
+ACCENT = (138, 28, 22)
+SLATE = (26, 28, 34)
+MUTED = (74, 74, 74)
 
-SERIF_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"
-SERIF = "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf"
-SANS_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-SANS = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+FONT_DIR = "/usr/share/fonts/truetype/dejavu"
+SERIF_HEAVY = f"{FONT_DIR}/DejaVuSerif-Bold.ttf"
+SERIF_PLAIN = f"{FONT_DIR}/DejaVuSerif.ttf"
+SANS_HEAVY = f"{FONT_DIR}/DejaVuSans-Bold.ttf"
+SANS_PLAIN = f"{FONT_DIR}/DejaVuSans.ttf"
 
 
-def font(path, size):
+def load_font(path, size):
     return ImageFont.truetype(path, size)
 
 
-def wrap(draw, text, fnt, max_width):
-    """Split text into lines that fit max_width, word by word."""
-    lines, current = [], ""
+def split_for_column(draw, text, fnt, width):
+    """Greedy word wrap: return the lines of text that fit `width`."""
+    result = []
+    pending = ""
     for word in text.split():
-        trial = word if not current else current + " " + word
-        if draw.textlength(trial, font=fnt) <= max_width:
-            current = trial
+        attempt = word if pending == "" else pending + " " + word
+        if draw.textlength(attempt, font=fnt) <= width:
+            pending = attempt
         else:
-            lines.append(current)
-            current = word
-    if current:
-        lines.append(current)
-    return lines
+            result.append(pending)
+            pending = word
+    if pending:
+        result.append(pending)
+    return result
 
 
-def draw_wrapped(draw, xy, text, fnt, fill, max_width, leading=1.18):
-    x, y = xy
-    for line in wrap(draw, text, fnt, max_width):
-        draw.text((x, y), line, font=fnt, fill=fill)
-        y += int(fnt.size * leading)
+def stamp_block(draw, origin, text, fnt, colour, width, spacing=1.18):
+    """Draw wrapped text at origin; return the y just below it."""
+    x, y = origin
+    step = round(fnt.size * spacing)
+    for line in split_for_column(draw, text, fnt, width):
+        draw.text((x, y), line, font=fnt, fill=colour)
+        y += step
     return y
 
 
-def cover(img, box_w, box_h):
-    """Resize and centre-crop an image so it exactly covers the box."""
-    scale = max(box_w / img.width, box_h / img.height)
-    img = img.resize((round(img.width * scale), round(img.height * scale)))
-    left = (img.width - box_w) // 2
-    top = (img.height - box_h) // 2
-    return img.crop((left, top, left + box_w, top + box_h))
+def fill_frame(picture, frame_w, frame_h):
+    """Scale a picture so it covers the frame, then crop the overflow."""
+    ratio = max(frame_w / picture.width, frame_h / picture.height)
+    grown = picture.resize((round(picture.width * ratio),
+                            round(picture.height * ratio)))
+    off_x = (grown.width - frame_w) // 2
+    off_y = (grown.height - frame_h) // 2
+    return grown.crop((off_x, off_y, off_x + frame_w, off_y + frame_h))
 
 
-def main():
-    page = Image.new("RGB", (W, H), PAPER)
-    d = ImageDraw.Draw(page)
+class FrontPage:
+    """A square broadsheet page laid out top to bottom with a cursor."""
 
-    # ---- Masthead ------------------------------------------------------
-    title_f = font(SERIF_BOLD, 58)
-    title = "THE WORLD IN ONE DAY"
-    tw = d.textlength(title, font=title_f)
-    d.text(((W - tw) / 2, 16), title, font=title_f, fill=INK)
-    d.line([(28, 96), (W - 28, 96)], fill=RULE, width=3)
+    def __init__(self):
+        self.canvas = Image.new("RGB", (SIDE, SIDE), PAPER_RGB)
+        self.pen = ImageDraw.Draw(self.canvas)
+        self.cursor = 0
 
-    # ---- Date band: the judge must be able to name the day -------------
-    d.rectangle([0, 108, W, 168], fill=RED)
-    date_f = font(SANS_BOLD, 40)
-    date = "MONDAY  •  23 NOVEMBER 2026"
-    dw = d.textlength(date, font=date_f)
-    d.text(((W - dw) / 2, 118), date, font=date_f, fill=(255, 255, 255))
+    def rule(self, y, weight=2):
+        self.pen.line([(MARGIN, y), (SIDE - MARGIN, y)], fill=BLACK,
+                      width=weight)
 
-    # ---- Lead story: COP31 collapses with no deal ----------------------
-    lead = cover(Image.open(ASSETS / "panel-cop31.webp").convert("RGB"), 560, 300)
-    page.paste(lead, (28, 184))
-    d.rectangle([28, 184, 588, 484], outline=RULE, width=2)
-    cap_f = font(SERIF, 17)
-    d.text((28, 492), "Empty chairs in Antalya as the climate summit fails",
-           font=cap_f, fill=GREY)
+    def masthead(self):
+        fnt = load_font(SERIF_HEAVY, 58)
+        name = "THE WORLD IN ONE DAY"
+        centred = (SIDE - self.pen.textlength(name, font=fnt)) / 2
+        self.pen.text((centred, 16), name, font=fnt, fill=BLACK)
+        self.rule(96, weight=3)
+        self.cursor = 108
 
-    lx = 612
-    d.text((lx, 188), "COP31  •  ANTALYA", font=font(SANS_BOLD, 20), fill=RED)
-    head_end = draw_wrapped(d, (lx, 218), "CLIMATE TALKS COLLAPSE, NO DEAL",
-                            font(SERIF_BOLD, 43), INK, W - lx - 24, leading=1.12)
-    draw_wrapped(
-        d, (lx, head_end + 10),
+    def date_band(self, words):
+        self.pen.rectangle([0, self.cursor, SIDE, self.cursor + 60],
+                           fill=ACCENT)
+        fnt = load_font(SANS_HEAVY, 40)
+        centred = (SIDE - self.pen.textlength(words, font=fnt)) / 2
+        self.pen.text((centred, self.cursor + 10), words, font=fnt,
+                      fill=(255, 255, 255))
+        self.cursor += 76
+
+    def lead(self, art_name, caption, kicker, headline, standfirst):
+        top = self.cursor
+        art = fill_frame(Image.open(ART / art_name).convert("RGB"), 560, 300)
+        self.canvas.paste(art, (MARGIN, top))
+        self.pen.rectangle([MARGIN, top, MARGIN + 560, top + 300],
+                           outline=BLACK, width=2)
+        self.pen.text((MARGIN, top + 308), caption,
+                      font=load_font(SERIF_PLAIN, 17), fill=MUTED)
+        col_x = MARGIN + 584
+        col_w = SIDE - col_x - 24
+        self.pen.text((col_x, top + 4), kicker,
+                      font=load_font(SANS_HEAVY, 20), fill=ACCENT)
+        end = stamp_block(self.pen, (col_x, top + 34), headline,
+                          load_font(SERIF_HEAVY, 43), BLACK, col_w,
+                          spacing=1.12)
+        stamp_block(self.pen, (col_x, end + 10), standfirst,
+                    load_font(SANS_PLAIN, 22), BLACK, col_w, spacing=1.3)
+        self.cursor = top + 344
+
+    def panel_row(self, panels):
+        top = self.cursor
+        col_w, gap = 309, 25
+        for slot, (art_name, banner, headline, summary) in enumerate(panels):
+            x = MARGIN + slot * (col_w + gap)
+            if art_name is None:
+                self.pen.rectangle([x, top, x + col_w, top + 128], fill=SLATE)
+                self.pen.text((x + 18, top + 38), banner,
+                              font=load_font(SERIF_HEAVY, 40),
+                              fill=(255, 255, 255))
+            else:
+                art = fill_frame(Image.open(ART / art_name).convert("RGB"),
+                                 col_w, 128)
+                self.canvas.paste(art, (x, top))
+                self.pen.rectangle([x, top, x + col_w, top + 128],
+                                   outline=BLACK, width=2)
+            head_y = stamp_block(self.pen, (x, top + 140), headline,
+                                 load_font(SANS_HEAVY, 21), BLACK, col_w,
+                                 spacing=1.15)
+            stamp_block(self.pen, (x, head_y + 4), summary,
+                        load_font(SANS_PLAIN, 17), MUTED, col_w,
+                        spacing=1.25)
+        self.cursor = top + 294
+
+    def closing_row(self, stories):
+        top = self.cursor
+        col_w = (SIDE - 2 * MARGIN - 25) // 2
+        for slot, (headline, summary) in enumerate(stories):
+            x = MARGIN + slot * (col_w + 25)
+            head_y = stamp_block(self.pen, (x, top), headline,
+                                 load_font(SANS_HEAVY, 21), BLACK, col_w,
+                                 spacing=1.15)
+            stamp_block(self.pen, (x, head_y + 4), summary,
+                        load_font(SANS_PLAIN, 17), MUTED, col_w,
+                        spacing=1.25)
+        self.cursor = top + 106
+
+    def ticker(self, items):
+        top = SIDE - 66
+        self.pen.rectangle([0, top, SIDE, SIDE], fill=SLATE)
+        line = "ALSO THAT DAY:  " + "  \u2022  ".join(items)
+        stamp_block(self.pen, (MARGIN, top + 10), line,
+                    load_font(SANS_HEAVY, 18), (255, 255, 255),
+                    SIDE - 2 * MARGIN, spacing=1.25)
+
+    def publish(self):
+        # JPEG payload under a .png name: the checker sniffs the magic
+        # bytes, and JPEG keeps the page comfortably under the size cap.
+        target = HERE / "entry.png"
+        self.canvas.save(target, format="JPEG", quality=86)
+        print("published", target)
+
+
+def compose():
+    page = FrontPage()
+    page.masthead()
+    page.date_band("MONDAY  \u2022  23 NOVEMBER 2026")
+    page.lead(
+        "panel-cop31.webp",
+        "Empty chairs in Antalya as the climate summit fails",
+        "COP31  \u2022  ANTALYA",
+        "CLIMATE TALKS COLLAPSE, NO DEAL",
         "Two weeks of talks end with no agreement: the EU and "
         "others reject a final text that drops any move away "
         "from fossil fuels.",
-        font(SANS, 22), INK, W - lx - 24, leading=1.3)
-
-    d.line([(28, 528), (W - 28, 528)], fill=RULE, width=2)
-
-    # ---- Middle row: three panels --------------------------------------
-    panels = [
-        ("panel-capitol.webp",
+    )
+    page.rule(page.cursor)
+    page.cursor += 16
+    page.panel_row([
+        ("panel-capitol.webp", None,
          "DEMOCRATS TAKE THE HOUSE IN A LANDSLIDE",
          "A majority of at least 258 seats, the party's biggest "
          "since 1992, lets Democrats block Trump's agenda."),
-        ("panel-drones.webp",
+        ("panel-drones.webp", None,
          "UKRAINE SINKS A RUSSIAN WARSHIP OFF LIBYA",
          "Sea drones strike at Benghazi: a Ka-27 helicopter "
          "destroyed, the cargo ship Angara hit."),
-        (None,
+        (None, "JAKARTA",
          "PRABOWO NAMES TWO VP HOPEFULS",
          "Andi Amran Sulaiman and Sugiono are put forward for "
          "Indonesia's empty vice-presidency; the MPR votes 11 Dec."),
-    ]
-    pw, gap, py = 309, 25, 544
-    for i, (img_name, head, sub) in enumerate(panels):
-        x = 28 + i * (pw + gap)
-        if img_name:
-            pic = cover(Image.open(ASSETS / img_name).convert("RGB"), pw, 128)
-            page.paste(pic, (x, py))
-            d.rectangle([x, py, x + pw, py + 128], outline=RULE, width=2)
-            hy = py + 140
-        else:
-            d.rectangle([x, py, x + pw, py + 128], fill=DARK)
-            big = font(SERIF_BOLD, 40)
-            d.text((x + 18, py + 38), "JAKARTA", font=big, fill=(255, 255, 255))
-            hy = py + 140
-        hy = draw_wrapped(d, (x, hy), head, font(SANS_BOLD, 21), INK, pw, leading=1.15)
-        draw_wrapped(d, (x, hy + 4), sub, font(SANS, 17), GREY, pw, leading=1.25)
-
-    d.line([(28, 838), (W - 28, 838)], fill=RULE, width=2)
-
-    # ---- Bottom row: markets and the Gulf -------------------------------
-    half = (W - 56 - gap) // 2
-    for i, (head, sub) in enumerate([
+    ])
+    page.rule(page.cursor)
+    page.cursor += 14
+    page.closing_row([
         ("AI ROUT DEEPENS AS ASIA MARKETS SELL OFF",
          "Stretched AI valuations sink shares in Seoul, Taipei "
          "and Hong Kong for a third straight day."),
         ("IRAN VOWS TO DEFY US BLOCKADE AT HORMUZ",
          "Tehran vows 'all available means'; the war's cost to "
          "the Gulf is put at $790bn by 2030."),
-    ]):
-        x = 28 + i * (half + gap)
-        hy = draw_wrapped(d, (x, 852), head, font(SANS_BOLD, 21), INK, half, leading=1.15)
-        draw_wrapped(d, (x, hy + 4), sub, font(SANS, 17), GREY, half, leading=1.25)
-
-    # ---- Ticker: the rest of the day in one breath ---------------------
-    d.rectangle([0, 958, W, H], fill=DARK)
-    tick_f = font(SANS_BOLD, 18)
-    ticker = ("ALSO THAT DAY:  Russian missiles stray into Poland  \u2022  "
-              "Bangladesh to arrest Hasina  \u2022  Nepal PM meets Modi  \u2022  "
-              "Mexico captures FBI kingpin  \u2022  Brent $92")
-    draw_wrapped(d, (28, 968), ticker, tick_f, (255, 255, 255), W - 56, leading=1.25)
-
-    # JPEG bytes under the name entry.png: the gate reads the format from
-    # the first bytes, and JPEG keeps photos under the 1 MiB cap.
-    page.save(ROOT / "entry.png", format="JPEG", quality=86)
-    print("wrote", ROOT / "entry.png")
+    ])
+    page.ticker([
+        "Russian missiles stray into Poland",
+        "Bangladesh to arrest Hasina",
+        "Nepal PM meets Modi",
+        "Mexico captures FBI kingpin",
+        "Brent $92",
+    ])
+    page.publish()
 
 
 if __name__ == "__main__":
-    main()
+    compose()

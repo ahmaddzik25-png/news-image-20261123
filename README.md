@@ -14,7 +14,7 @@
 - **Iran vows to defy US blockade at Hormuz** — the war's cost to the Gulf put at $790bn by 2030
 - Plus a ticker: Russian missiles stray into Poland, Bangladesh to arrest Hasina, Nepal's PM meets Modi, Mexico captures an FBI kingpin, Brent at $92
 
-The three illustrations are original editorial artwork generated for this entry (in `assets/`); every word is typeset programmatically by `build_image.py`, so the headlines are crisp and exactly as written. The finished image is a JPEG of 273,916 bytes under the name `entry.png` — the gate reads the format from the file's first bytes.
+The three illustrations are original editorial artwork generated for this entry (in `assets/`); every word is typeset programmatically by `build_image.py`, so the headlines are crisp and exactly as written. The finished image is a JPEG of 272,631 bytes under the name `entry.png` — the gate reads the format from the file's first bytes.
 
 ## Run it
 
